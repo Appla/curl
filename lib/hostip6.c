@@ -111,13 +111,26 @@ struct Curl_addrinfo *Curl_getaddrinfo(struct Curl_easy *data,
 #ifndef USE_RESOLVE_ON_IPS
   char addrbuf[128];
 #endif
-  int pf = PF_INET;
+  int pf;
 
   *waitp = 0; /* synchronous response only */
 
-  if(Curl_ipv6works(data))
-    /* The stack seems to be IPv6-enabled */
+  /* Check if a limited name resolve has been requested */
+  switch(data->set.ipver) {
+  case CURL_IPRESOLVE_V4:
+    pf = PF_INET;
+    break;
+  case CURL_IPRESOLVE_V6:
+    pf = PF_INET6;
+    break;
+  default:
     pf = PF_UNSPEC;
+    break;
+  }
+
+  if((pf != PF_INET) && !Curl_ipv6works(data))
+    /* The stack seems to be a non-IPv6 one */
+    pf = PF_INET;
 
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = pf;
