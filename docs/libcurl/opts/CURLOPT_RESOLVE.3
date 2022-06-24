@@ -54,25 +54,29 @@ This option effectively pre-populates the DNS cache with entries for the
 host+port pair so redirects and everything that operations against the
 HOST+PORT will instead use your provided ADDRESS.
 
-The optional leading "+" specifies that the new entry should time-out. Entries
-added without the leading plus character will never time-out whereas entries
-added with "+HOST:..." will time-out just like ordinary DNS cache entries.
+The optional leading "+" signifies whether the new entry should time-out or
+not. Entries added with "HOST:..." will never time-out whereas entries added
+with "+HOST:..." will time-out just like ordinary DNS cache entries.
 
-If the DNS cache already has an entry for the given host+port pair, the new
-entry will override the former one.
+If the DNS cache already has an entry for the given host+port pair, then
+this entry will be removed and a new entry will be created. This is because
+the old entry may have have different addresses or a different time-out
+setting.
 
-An ADDRESS provided by this option will only be used if not restricted by the
-setting of \fICURLOPT_IPRESOLVE(3)\fP to a different IP version.
+An ADDRESS provided by this option will only be use if not restricted by
+the setting of \fICURLOPT_IPRESOLVE(3)\fP to a different IP version.
 
-To remove names from the DNS cache again, to stop providing these fake
-resolves, include a string in the linked list that uses the format
+Remove names from the DNS cache again, to stop providing these fake resolves,
+by including a string in the linked list that uses the format
+\&"-HOST:PORT". The host name must be prefixed with a dash, and the host name
+and port number must exactly match what was already added previously.
 
-.nf
-  -HOST:PORT
-.fi
+Support for providing the ADDRESS within [brackets] was added in 7.57.0.
 
-The entry to remove must be prefixed with a dash, and the host name and port
-number must exactly match what was added previously.
+Support for providing multiple IP addresses per entry was added in 7.59.0.
+
+Support for adding non-permanent entries by using the "+" prefix was added in
+7.75.0.
 .SH DEFAULT
 NULL
 .SH PROTOCOLS
