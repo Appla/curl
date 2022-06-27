@@ -453,7 +453,7 @@ Curl_cache_addr(struct Curl_easy *data,
   create_hostcache_id(hostname, port, entry_id, sizeof(entry_id));
   entry_len = strlen(entry_id);
   /* fetch cache first */
-  dns = Curl_hash_pick(data->dns.hostcache, entry_id, entry_len + 1);
+  dns = (struct Curl_dns_entry *)Curl_hash_pick(data->dns.hostcache, entry_id, entry_len + 1);
   if (dns) {
     /* append new resolved result to cache, because same ipver will not entry this, so this should be SAFE to append, or should we cmp addr? */
     struct Curl_addrinfo *tmp_addr = dns->addr;
@@ -464,6 +464,7 @@ Curl_cache_addr(struct Curl_easy *data,
     }
     infof(data, "Append address entry to dns cache, total record is %d", entry_len);
     tmp_addr->ai_next = addr;
+    infof(data, "Append address entry to dns cache successful");
   } else {
     /* Create a new cache entry */
     dns = calloc(1, sizeof(struct Curl_dns_entry));
@@ -475,17 +476,15 @@ Curl_cache_addr(struct Curl_easy *data,
     time(&dns->timestamp);
     if(dns->timestamp == 0)
         dns->timestamp = 1;   /* zero indicates permanent CURLOPT_RESOLVE entry */
- }
-
-  /* Store the resolved data in our DNS cache. */
-  dns2 = Curl_hash_add(data->dns.hostcache, entry_id, entry_len + 1,
-                       (void *)dns);
-  if(!dns2) {
-    free(dns);
-    return NULL;
+    /* Store the resolved data in our DNS cache. */
+    dns2 = Curl_hash_add(data->dns.hostcache, entry_id, entry_len + 1,
+                         (void *)dns);
+    if(!dns2) {
+        free(dns);
+        return NULL;
+    }
+    dns = dns2;
   }
-
-  dns = dns2;
   dns->inuse++;         /* mark entry as in-use */
   return dns;
 }
