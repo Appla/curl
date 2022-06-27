@@ -294,6 +294,13 @@ static struct Curl_dns_entry *fetch_addr(struct Curl_easy *data,
       Curl_hash_delete(data->dns.hostcache, entry_id, entry_len + 1);
     }
   }
+  // check whether dns resolved cache's address family are satisfied required
+  if (dns && data->set.ipver != CURL_IPRESOLVE_WHATEVER &&
+  ((data->set.ipver == CURL_IPRESOLVE_V4 && dns->addr->ai_family != AF_INET) ||
+  (data->set.ipver == CURL_IPRESOLVE_V6 && Curl_ipv6works(data) && dns->addr->ai_family != AF_INET6))) {
+      infof(data, "Address family of hostname in DNS cache are not satisfied user requirement, ignored");
+      dns = NULL;
+  }
 
   return dns;
 }
