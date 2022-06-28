@@ -258,6 +258,24 @@ void Curl_hostcache_prune(struct Curl_easy *data)
 sigjmp_buf curl_jmpenv;
 #endif
 
+/* verify cached address info satisfied user requirement */
+static bool
+Curl_check_cached_dns_entry(struct Curl_easy *data, const struct Curl_dns_entry *dns)
+{
+    struct connectdata const *conn = data->conn;
+    struct Curl_addrinfo *addr = dns->addr;
+    // check whether dns resolved cache's address family are satisfied required
+    while (addr) {
+        if (conn->ip_version == CURL_IPRESOLVE_WHATEVER ||
+            (conn->ip_version == CURL_IPRESOLVE_V4 && addr->ai_family == AF_INET) ||
+            (conn->ip_version == CURL_IPRESOLVE_V6 && (addr->ai_family == AF_INET6 || !Curl_ipv6works(data)))) {
+            return true;
+        }
+        addr = addr->ai_next;
+    }
+    return false;
+}
+
 /* lookup address, returns entry if found and not stale */
 static struct Curl_dns_entry *fetch_addr(struct Curl_easy *data,
                                          const char *hostname,
@@ -295,6 +313,10 @@ static struct Curl_dns_entry *fetch_addr(struct Curl_easy *data,
       dns = NULL; /* the memory deallocation is being handled by the hash */
       Curl_hash_delete(data->dns.hostcache, entry_id, entry_len + 1);
     }
+  }
+  if (dns && !Curl_check_cached_dns_entry(data, dns)) {
+    infof(data, "Address family of hostname in DNS cache are not satisfied user requirement, ignored");
+    dns = NULL;
   }
 
   return dns;
@@ -433,31 +455,41 @@ Curl_cache_addr(struct Curl_easy *data,
   }
 #endif
 
-  /* Create a new cache entry */
-  dns = calloc(1, sizeof(struct Curl_dns_entry));
-  if(!dns) {
-    return NULL;
-  }
-
   /* Create an entry id, based upon the hostname and port */
   create_hostcache_id(hostname, port, entry_id, sizeof(entry_id));
   entry_len = strlen(entry_id);
-
-  dns->inuse = 1;   /* the cache has the first reference */
-  dns->addr = addr; /* this is the address(es) */
-  time(&dns->timestamp);
-  if(dns->timestamp == 0)
-    dns->timestamp = 1;   /* zero indicates permanent CURLOPT_RESOLVE entry */
-
-  /* Store the resolved data in our DNS cache. */
-  dns2 = Curl_hash_add(data->dns.hostcache, entry_id, entry_len + 1,
-                       (void *)dns);
-  if(!dns2) {
-    free(dns);
-    return NULL;
+  /* fetch cache first */
+  dns = (struct Curl_dns_entry *)Curl_hash_pick(data->dns.hostcache, entry_id, entry_len + 1);
+  if (dns) {
+    /* append new resolved result to cache, because same ipver will not entry this, so this should be SAFE to append, or should we cmp addr? */
+    struct Curl_addrinfo *tmp_addr = dns->addr;
+    int entry_len = 1;
+    while(tmp_addr->ai_next) {
+        tmp_addr = tmp_addr->ai_next;
+        entry_len++;
+    }
+    infof(data, "Append address entry to dns cache, total record is %d", entry_len);
+    tmp_addr->ai_next = addr;
+  } else {
+    /* Create a new cache entry */
+    dns = calloc(1, sizeof(struct Curl_dns_entry));
+    if(!dns) {
+        return NULL;
+    }
+    dns->inuse = 1;   /* the cache has the first reference */
+    dns->addr = addr; /* this is the address(es) */
+    time(&dns->timestamp);
+    if(dns->timestamp == 0)
+        dns->timestamp = 1;   /* zero indicates permanent CURLOPT_RESOLVE entry */
+    /* Store the resolved data in our DNS cache. */
+    dns2 = Curl_hash_add(data->dns.hostcache, entry_id, entry_len + 1,
+                         (void *)dns);
+    if(!dns2) {
+        free(dns);
+        return NULL;
+    }
+    dns = dns2;
   }
-
-  dns = dns2;
   dns->inuse++;         /* mark entry as in-use */
   return dns;
 }
