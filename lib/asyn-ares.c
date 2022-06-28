@@ -758,12 +758,13 @@ struct Curl_addrinfo *Curl_resolver_getaddrinfo(struct Curl_easy *data,
 #ifdef ENABLE_IPV6
   switch(data->set.ipver) {
   default:
-#if ARES_VERSION >= 0x010601
+#ifdef HAVE_CARES_IPV6
+    // fallback to ipv4
     family = PF_UNSPEC; /* supported by c-ares since 1.6.1, so for older
                            c-ares versions this just falls through and defaults
                            to PF_INET */
     break;
-#endif
+#endif /* HAVE_CARES_IPV6 */
   case CURL_IPRESOLVE_V4:
     family = PF_INET;
     break;
@@ -772,6 +773,10 @@ struct Curl_addrinfo *Curl_resolver_getaddrinfo(struct Curl_easy *data,
     break;
   }
 #endif /* ENABLE_IPV6 */
+  if (family != PF_INET && !Curl_ipv6works(data)) {
+      // fallback to ipv4
+      family = PF_INET;
+  }
 
   bufp = strdup(hostname);
   if(bufp) {
@@ -792,27 +797,35 @@ struct Curl_addrinfo *Curl_resolver_getaddrinfo(struct Curl_easy *data,
 
     /* initial status - failed */
     res->last_status = ARES_ENOTFOUND;
-#ifdef ENABLE_IPV6
+
+#ifdef HAVE_CARES_GETADDRINFO
+    {
+      struct ares_addrinfo_hints hints;
+      char service[12];
+      memset(&hints, 0, sizeof(hints));
+      hints.ai_family = family;
+      hints.ai_socktype = (data->conn->transport == TRNSPRT_TCP)?
+        SOCK_STREAM : SOCK_DGRAM;
+      msnprintf(service, sizeof(service), "%d", port);
+      res->num_pending = 1;
+      ares_getaddrinfo((ares_channel)data->state.async.resolver, hostname,
+                       service, &hints, addrinfo_cb, data);
+    }
+#else
+
+#ifdef HAVE_CARES_IPV6
     if(family == PF_UNSPEC) {
-      if(Curl_ipv6works(data)) {
-        res->num_pending = 2;
+      /* The stack seems to be IPv6-enabled */
+      res->num_pending = 2;
 
-        /* areschannel is already setup in the Curl_open() function */
-        ares_gethostbyname((ares_channel)data->state.async.resolver, hostname,
-                            PF_INET, query_completed_cb, data);
-        ares_gethostbyname((ares_channel)data->state.async.resolver, hostname,
-                            PF_INET6, query_completed_cb, data);
-      }
-      else {
-        res->num_pending = 1;
-
-        /* areschannel is already setup in the Curl_open() function */
-        ares_gethostbyname((ares_channel)data->state.async.resolver, hostname,
-                            PF_INET, query_completed_cb, data);
-      }
+      /* areschannel is already setup in the Curl_open() function */
+      ares_gethostbyname((ares_channel)data->state.async.resolver, hostname,
+                          PF_INET, query_completed_cb, data);
+      ares_gethostbyname((ares_channel)data->state.async.resolver, hostname,
+                          PF_INET6, query_completed_cb, data);
     }
     else
-#endif /* ARES_VERSION >= 0x010601 */
+#endif  /* HAVE_CARES_IPV6 */
     {
       res->num_pending = 1;
 
@@ -821,7 +834,7 @@ struct Curl_addrinfo *Curl_resolver_getaddrinfo(struct Curl_easy *data,
                          hostname, family,
                          query_completed_cb, data);
     }
-#endif
+#endif  /* HAVE_CARES_GETADDRINFO */
     *waitp = 1; /* expect asynchronous response */
   }
   return NULL; /* no struct yet */
